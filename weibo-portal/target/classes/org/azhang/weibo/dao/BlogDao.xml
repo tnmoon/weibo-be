@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.azhang.weibo.dao.BlogDao">
+
+    <resultMap id="blogIdRelationResultMap" type="org.azhang.weibo.dto.BlogIdRelationResult">
+        <result column="blogId" property="id"/>
+        <result column="sourceBlogId" property="sourceBlogId"/>
+    </resultMap>
+
+    <resultMap id="blogDetailResultMap" type="org.azhang.weibo.dto.BlogDetailResult">
+        <result column="blogId" property="blogId"/>
+        <result column="firstCommentCount" property="firstCommentCount"/>
+        <result column="secondCommentCount" property="secondCommentCount"/>
+        <result column="likeCount" property="likeCount"/>
+        <result column="hasLiked" property="hasLiked"/>
+        <result column="hasCollected" property="hasCollected"/>
+        <result column="blogText" property="blogText"/>
+        <result column="blogPostTime" property="blogPostTime"/>
+        <result column="blogPostTerminal" property="blogPostTerminal"/>
+        <result column="blogPostLocation" property="blogPostLocation"/>
+        <result column="userId" property="userId"/>
+        <result column="userNickname" property="userNickname"/>
+        <result column="userProfilePictureUrl" property="userProfilePictureUrl"/>
+        <collection property="blogPictureUrlList" ofType="java.lang.String" javaType="java.util.ArrayList">
+            <result column="blogPictureUrl"/>
+        </collection>
+    </resultMap>
+
+    <resultMap id="commentIdRelationResultMap" type="org.azhang.weibo.dto.CommentIdRelationResult">
+        <result column="mCommentId" property="commentId"/>
+        <result column="mCommentPostTime" property="commentPostTime"/>
+        <result column="mLikeCount" property="likeCount"/>
+        <result column="replyCount" property="replyCount"/>
+        <collection property="replyList" resultMap="replyCommentIdResultMap"/>
+    </resultMap>
+
+    <resultMap id="replyCommentIdResultMap" type="org.azhang.weibo.dto.CommentIdRelationResult">
+        <result column="rCommentId" property="commentId"/>
+        <result column="rCommentPostTime" property="commentPostTime"/>
+        <result column="rLikeCount" property="likeCount"/>
+    </resultMap>
+
+    <select id="getTimelineBlogIdRelation" resultMap="blogIdRelationResultMap">
+        SELECT x.blogId, br.source_blog_id sourceBlogId
+        FROM (SELECT blog.id blogId, blog.post_time blogPostTime
+              FROM user_relation ur
+                       INNER JOIN blog ON ur.blogger_id = blog.user_id
+              WHERE ur.follower_id = #{userId}
+                AND (UNIX_TIMESTAMP(blog.post_time) &lt; #{lastBlogTimestamp} OR
+                     (UNIX_TIMESTAMP(blog.post_time) = #{lastBlogTimestamp} AND blog.id &gt; #{lastBlogId}))
+              ORDER BY blog.post_time DESC, blog.id
+              LIMIT 0, 10) x
+                 LEFT JOIN blog_repost br ON x.blogId = br.blog_id
+        ORDER BY x.blogPostTime DESC, x.blogId;
+    </select>
+
+    <select id="getBlogListDetailById" resultMap="blogDetailResultMap">
+        SELECT *
+        FROM (SELECT b.id xId, COUNT(ca_owner_id) firstCommentCount, SUM(IFNULL(second_count, 0)) secondCommentCount
+        FROM blog b
+        LEFT JOIN
+        (SELECT ca.owner_id ca_owner_id, ca.id ca_id, COUNT(cb.owner_id) second_count
+        FROM (SELECT * FROM comment WHERE comment.comment_type = 1) ca
+        LEFT JOIN (SELECT *
+        FROM comment
+        WHERE comment.comment_type = 2) cb ON ca.id = cb.owner_id
+        GROUP BY ca.id) x ON b.id = ca_owner_id
+        WHERE b.id IN
+        <foreach collection="blogIdList" item="blogId" separator="," open="(" close=")">
+            #{blogId}
+        </foreach>
+        GROUP BY b.id) x,
+
+        (SELECT COUNT(bl.blog_id) likeCount, b.id zId
+        FROM blog b
+        LEFT JOIN blog_like bl ON b.id = bl.blog_id
+        WHERE b.id IN
+        <foreach collection="blogIdList" item="blogId" separator="," open="(" close=")">
+            #{blogId}
+        </foreach>
+        GROUP BY b.id) z,
+
+        (SELECT COUNT(bl.user_id) hasLiked, b.id wId
+        FROM blog b
+        LEFT JOIN blog_like bl ON b.id = bl.blog_id AND bl.user_id = #{userId}
+        WHERE b.id IN
+        <foreach collection="blogIdList" item="blogId" separator="," open="(" close=")">
+            #{blogId}
+        </foreach>
+        GROUP BY b.id) w,
+
+        (SELECT COUNT(c.user_id) hasCollected, b.id kId
+        FROM blog b
+        LEFT JOIN (SELECT * FROM blog_collect bc WHERE bc.user_id = #{userId}) c ON b.id = c.blog_id
+        WHERE b.id IN
+        <foreach collection="blogIdList" item="blogId" separator="," open="(" close=")">
+            #{blogId}
+        </foreach>
+        GROUP BY b.id) k,
+
+        (SELECT b.id blogId,
+        b.text blogText,
+        b.post_time blogPostTime,
+        b.post_terminal blogPostTerminal,
+        b.post_location blogPostLocation,
+        b.user_id blogUserId,
+        u.nickname userNickname,
+        u.profile_picture_url userProfilePictureUrl,
+        u.id userId,
+        bp.url blogPictureUrl
+        FROM blog b
+        LEFT JOIN blog_picture bp on b.id = bp.blog_id
+        LEFT JOIN user u on b.user_id = u.id
+        WHERE b.id IN
+        <foreach collection="blogIdList" item="blogId" separator="," open="(" close=")">
+            #{blogId}
+        </foreach>) v
+        WHERE xId = zId
+        AND xId = wId
+        AND xId = blogId
+        AND xId = kId;
+    </select>
+
+    <select id="getRepostCountByBlogId" resultType="java.lang.Integer">
+        SELECT (get_repost_count(#{blogId}) - 1) repostCount;
+    </select>
+
+</mapper>

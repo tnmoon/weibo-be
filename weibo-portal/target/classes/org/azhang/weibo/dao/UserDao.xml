@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.azhang.weibo.dao.UserDao">
+
+    <resultMap id="userDetailResultMap" type="org.azhang.weibo.dto.UserDetailResult">
+        <result column="followCount" property="followCount"/>
+        <result column="blogCount" property="blogCount"/>
+        <result column="fansCount" property="fansCount"/>
+        <result column="userNickname" property="userNickname"/>
+        <result column="userId" property="userId"/>
+        <result column="userIconUrl" property="userIconUrl"/>
+        <result column="userDescription" property="userDescription"/>
+        <result column="hasFollowed" property="hasFollowed"/>
+    </resultMap>
+
+    <select id="getUserDetail" resultMap="userDetailResultMap">
+        SELECT *
+        FROM (SELECT (COUNT(ur.follower_id)-1) followCount, ur.follower_id userId
+              FROM user_relation ur
+              WHERE ur.follower_id = #{userId}
+              GROUP BY ur.follower_id) x,
+             (SELECT COUNT(b.user_id) blogCount
+              FROM user u LEFT JOIN blog b ON u.id = b.user_id
+              WHERE u.id = #{userId}
+              GROUP BY b.user_id) y,
+             (SELECT (COUNT(ur.blogger_id) - 1) fansCount
+              FROM user_relation ur
+              WHERE ur.blogger_id = #{userId}
+              GROUP BY ur.blogger_id) z,
+             (SELECT u.id userId,
+                     u.nickname userNickname,
+                     u.profile_picture_url userIconUrl,
+                     u.description userDescription
+              FROM user u
+              WHERE u.id = #{userId}) w,
+             (SELECT COUNT(*) hasFollowed
+              FROM user_relation ur
+              WHERE ur.follower_id = #{myId} AND ur.blogger_id=#{userId} ) v
+    </select>
+
+</mapper>

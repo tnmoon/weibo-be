@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.azhang.weibo.dao.CommentDao">
+
+    <resultMap id="commentIdRelationResultMap" type="org.azhang.weibo.dto.CommentIdRelationResult">
+        <result column="mCommentId" property="commentId"/>
+        <result column="mCommentPostTime" property="commentPostTime"/>
+        <result column="mLikeCount" property="likeCount"/>
+        <result column="replyCount" property="replyCount"/>
+        <collection property="replyList" resultMap="replyCommentIdResultMap"/>
+    </resultMap>
+
+    <resultMap id="replyCommentIdResultMap" type="org.azhang.weibo.dto.CommentIdRelationResult">
+        <result column="rCommentId" property="commentId"/>
+        <result column="rCommentPostTime" property="commentPostTime"/>
+        <result column="rLikeCount" property="likeCount"/>
+    </resultMap>
+
+    <resultMap id="commentDetailResultMap" type="org.azhang.weibo.dto.CommentDetailResult">
+        <result column="commentId" property="commentId"/>
+        <result column="commentText" property="commentText"/>
+        <result column="userId" property="userId"/>
+        <result column="userNickname" property="userNickname"/>
+        <result column="userIconUrl" property="userIconUrl"/>
+        <result column="hasLiked" property="hasLiked"/>
+    </resultMap>
+
+    <select id="getCommentIdRelationByBlogId" resultMap="commentIdRelationResultMap">
+        SELECT mCommentId, mLikeCount, mCommentPostTime, rCommentId, rLikeCount, rCommentPostTime, replyCount
+        FROM (SELECT mc.id mCommentId,mc.like_count mLikeCount,
+        mc.comment_time mCommentPostTime,
+        rc.id rCommentId,
+        rc.like_count rLikeCount,
+        rc.comment_time rCommentPostTime,
+        ROW_NUMBER() OVER (PARTITION BY mc.id ORDER BY rc.like_count DESC, rc.comment_time DESC, rc.id) rrows,
+        COUNT(*) OVER (partition by mc.id) replyCount
+        FROM (SELECT * FROM comment_with_like_count c WHERE c.comment_type = 1 AND c.owner_id =
+        #{commentDetailParam.blogId}) mc
+        LEFT JOIN (SELECT * FROM comment_with_like_count c WHERE c.comment_type = 2) rc ON mc.id = rc.owner_id
+        ORDER BY mLikeCount DESC, mCommentPostTime DESC, mCommentId, rLikeCount DESC, rCommentPostTime DESC, rCommentId)
+        x
+        WHERE x.rrows &lt;= 3 AND (
+
+        <if test="commentDetailParam.lastLikeCount!=null">
+            mLikeCount &lt; #{commentDetailParam.lastLikeCount} OR
+        </if>
+
+        (
+        <if test="commentDetailParam.lastLikeCount!=null">
+            mLikeCount = #{commentDetailParam.lastLikeCount} AND
+        </if>
+        UNIX_TIMESTAMP(mCommentPostTime) &lt; #{commentDetailParam.lastCommentTimestamp}
+        ) OR
+
+        (
+        <if test="commentDetailParam.lastLikeCount!=null">
+            mLikeCount = #{commentDetailParam.lastLikeCount} AND
+        </if>
+        UNIX_TIMESTAMP(mCommentPostTime) = #{commentDetailParam.lastCommentTimestamp} AND mCommentId &gt;
+        #{commentDetailParam.lastCommentId}
+        )
+        )
+
+        LIMIT 7;
+    </select>
+
+    <select id="getCommentListDetailById" resultMap="commentDetailResultMap">
+        SELECT c.text commentText,
+        c.user_id userId,
+        c.id commentId,
+        u.nickname userNickname,
+        u.profile_picture_url userIconUrl,
+        COUNT(cl.user_id) hasLiked
+        FROM comment c
+        LEFT JOIN user u on c.user_id = u.id
+        LEFT JOIN (SELECT * FROM comment_like cl WHERE cl.user_id = #{userId}) cl on c.id = cl.comment_id
+        WHERE c.id IN
+        <foreach collection="commentIdList" item="commentId" separator="," open="(" close=")">
+            #{commentId}
+        </foreach>
+        GROUP BY c.id;
+    </select>
+</mapper>
